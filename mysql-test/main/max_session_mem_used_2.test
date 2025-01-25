@@ -1,20 +1,19 @@
-connection node_2;
-connection node_1;
+--source include/have_innodb.inc
+
 SET SESSION query_prealloc_size=8192;
 SET max_session_mem_used=50000;
 CREATE TABLE t1 (c1 INT NOT NULL) ENGINE=InnoDB ;
+--error ER_OPTION_PREVENTS_STATEMENT
 UPDATE t1 SET c1='1';
-ERROR HY000: The MariaDB server is running with the --max-session-mem-used=50000 option so it cannot execute this statement
-SET wsrep_trx_fragment_size=1;
 SET SESSION AUTOCOMMIT=0;
 INSERT INTO t1 VALUES (1);
 SET @inserted_value=REPEAT ('z', 257);
 CREATE TABLE t2 (a INT PRIMARY KEY) ENGINE=InnoDB ;
+--error ER_OPTION_PREVENTS_STATEMENT
 SELECT * FROM t1 WHERE c1='two';
-ERROR HY000: The MariaDB server is running with the --max-session-mem-used=50000 option so it cannot execute this statement
 UPDATE t1 SET c1='2';
+--error ER_OPTION_PREVENTS_STATEMENT
 INSERT INTO t2 VALUES (2);
-ERROR HY000: The MariaDB server is running with the --max-session-mem-used=50000 option so it cannot execute this statement
 INSERT INTO t2 VALUES (3);
 INSERT INTO t2 VALUES (4);
 INSERT INTO t2 VALUES (5);
