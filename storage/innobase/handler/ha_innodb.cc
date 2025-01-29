@@ -620,6 +620,7 @@ performance schema instrumented if "UNIV_PFS_THREAD"
 is defined */
 static PSI_thread_info	all_innodb_threads[] = {
 	PSI_KEY(page_cleaner_thread),
+	PSI_KEY(page_encrypt_thread),
 	PSI_KEY(trx_rollback_clean_thread),
 	PSI_KEY(thread_pool_thread)
 };
@@ -4594,9 +4595,10 @@ innobase_commit(
 		ut_ad("invalid state" == 0);
 		/* fall through */
 	case TRX_STATE_PREPARED:
-		ut_ad(commit_trx);
+		ut_ad(commit_trx || trx->is_wsrep());
 		ut_ad(thd_test_options(thd, OPTION_NOT_AUTOCOMMIT
-				       | OPTION_BEGIN));
+				       | OPTION_BEGIN)
+		      || trx->is_wsrep());
 		/* fall through */
 	case TRX_STATE_ACTIVE:
 		/* Transaction is deregistered only in a commit or a
@@ -9656,8 +9658,7 @@ ha_innobase::ft_init_ext(
 
 	/* If tablespace is discarded, we should return here */
 	if (!ft_table->space) {
-		my_error(ER_TABLESPACE_MISSING, MYF(0), table->s->db.str,
-			 table->s->table_name.str);
+		my_error(ER_TABLESPACE_MISSING, MYF(0), ft_table->name.m_name);
 		return(NULL);
 	}
 
@@ -14345,7 +14346,7 @@ ha_innobase::rename_table(
 		my_error(ER_TABLE_EXISTS_ERROR, MYF(0), to);
 		error = DB_ERROR;
 	} else if (error == DB_LOCK_WAIT_TIMEOUT) {
-		my_error(ER_LOCK_WAIT_TIMEOUT, MYF(0), to);
+		my_error(ER_LOCK_WAIT_TIMEOUT, MYF(0));
 		error = DB_LOCK_WAIT;
 	}
 
@@ -16273,6 +16274,7 @@ ha_innobase::external_lock(
 	case F_UNLCK:
 		DEBUG_SYNC_C("ha_innobase_end_statement");
 		m_mysql_has_locked = false;
+		ut_a(trx->n_mysql_tables_in_use);
 
 		if (--trx->n_mysql_tables_in_use) {
 			break;
