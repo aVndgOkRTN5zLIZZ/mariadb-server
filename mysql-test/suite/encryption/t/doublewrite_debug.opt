@@ -1,3 +1,4 @@
 --innodb-use-atomic-writes=0
 --innodb-encrypt-tables=FORCE
 --innodb_sys_tablespaces
+--innodb-log-file-buffering=1
