@@ -15666,9 +15666,16 @@ Join_cache_level check_join_cache_usage(JOIN_TAB *tab,
     // BNL() hint present, raise join_cache_level to BNLH-incremental
     cache_level= Join_cache_level::BNLH_INCR;
   }
-  else if (hint_forces_bka)
+  else if (hint_forces_bka &&
+           !(cache_level >= Join_cache_level::BKA_NON_INCR &&
+             cache_level <= Join_cache_level::BKAH_INCR))
   {
-    // BKA() hint present, raise join_cache_level to BKAH-incremental
+    /*
+      BKA() hint present. If join_cache_level is already set to BKA or BKAH,
+      just ignore the hint. For other join_cache_levels raise the level to
+      maximum possible (BKAH incremental) as there is no such granularity
+      in hints as there is in join cache levels
+    */
     cache_level= Join_cache_level::BKAH_INCR;
   }
 
@@ -15824,7 +15831,7 @@ Join_cache_level check_join_cache_usage(JOIN_TAB *tab,
   case JT_CONST:
   case JT_REF:
   case JT_EQ_REF:
-    if (cache_level <= Join_cache_level::BNL_INCR ||
+    if (cache_level < Join_cache_level::BNLH_NON_INCR ||
         (no_hashed_cache && no_bka_cache))
     {
       goto no_join_cache;
@@ -15848,7 +15855,8 @@ Join_cache_level check_join_cache_usage(JOIN_TAB *tab,
         no_bka_cache ||
         tab->is_ref_for_hash_join() ||
         ((flags & HA_MRR_NO_ASSOCIATION) &&
-           cache_level <= Join_cache_level::BKA_INCR) || hint_forces_bnl)
+           cache_level <= Join_cache_level::BKA_INCR) ||
+        (hint_forces_bnl && !no_hashed_cache))
     {
       // Only BNLH cache is applicable for the conditions given
       if (no_bnl_cache)
@@ -15868,11 +15876,11 @@ Join_cache_level check_join_cache_usage(JOIN_TAB *tab,
     }
 
     // Check and apply BKA/BKAH cache if possible
-    if (cache_level <= Join_cache_level::BNLH_INCR || no_bka_cache)
+    if (cache_level < Join_cache_level::BKA_NON_INCR || no_bka_cache)
       goto no_join_cache;
 
     if ((flags & HA_MRR_NO_ASSOCIATION) &&
-        (cache_level <= Join_cache_level::BKA_INCR || no_hashed_cache))
+        (cache_level < Join_cache_level::BKAH_NON_INCR || no_hashed_cache))
     {
       goto no_join_cache;
     }

@@ -61,6 +61,53 @@ set join_cache_level = 8;
 --echo ================================================================
 set optimizer_switch= 'join_cache_hashed=off,join_cache_bka=on,mrr=on';
 
+--echo
+--echo ***********************************************
+set join_cache_level = 0;
+--source opt_hints_join_cache.inc
+
+--echo
+--echo ***********************************************
+set join_cache_level = 1;
+--source opt_hints_join_cache.inc
+
+--echo
+--echo ***********************************************
+set join_cache_level = 2;
+--source opt_hints_join_cache.inc
+
+--echo
+--echo ***********************************************
+set join_cache_level = 3;
+--source opt_hints_join_cache.inc
+
+--echo
+--echo ***********************************************
+set join_cache_level = 4;
+--source opt_hints_join_cache.inc
+
+--echo
+--echo ***********************************************
+set join_cache_level = 5;
+--source opt_hints_join_cache.inc
+
+--echo
+--echo ***********************************************
+set join_cache_level = 6;
+--source opt_hints_join_cache.inc
+
+set join_cache_level = 7;
+--source opt_hints_join_cache.inc
+
+set join_cache_level = 8;
+--source opt_hints_join_cache.inc
+
+--echo
+--echo ================================================================
+set optimizer_switch= 'join_cache_hashed=on,join_cache_bka=off,mrr=on';
+
+--echo
+--echo ***********************************************
 set join_cache_level = 0;
 --source opt_hints_join_cache.inc
 
