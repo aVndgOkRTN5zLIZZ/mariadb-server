@@ -9175,6 +9175,12 @@ bool setup_oracle_join(THD *thd, COND **conds, TABLE_LIST *tables, uint n_tables
   for(;table; i++, t++, table= table->next_local)
   {
     DBUG_ASSERT(i < n_tables);
+    if (table->outer_join || table->nested_join || table->natural_join ||
+        table->embedding || table->straight)
+    {
+      my_error(ER_INVALID_USE_OF_ORA_JOIN_MIX, MYF(0));
+      DBUG_RETURN(TRUE);
+    }
     t->next= NULL;
     t->inner_side.empty();
     t->outer_side.empty();

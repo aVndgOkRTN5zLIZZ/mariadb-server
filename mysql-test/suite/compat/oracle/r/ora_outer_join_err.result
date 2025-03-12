@@ -32,3 +32,27 @@ t2.b = t3.c(+)
 ;
 ERROR HY000: Invalid usage of (+) operator: cycle dependencies
 DROP TABLE t1,t2,t3,t4,t5;
+create table t1 (a int);
+create table t2 (a int);
+create table t3 (a int);
+# mixing with left join
+select * from t1, t2 left join t3 on (t2.a = t3.a)
+where t1.a = t2.a(+);
+ERROR HY000: Invalid usage of (+) operator: mixed with other type of join
+# mixing with right join
+select * from t1, t2 right join t3 on (t2.a = t3.a)
+where t1.a = t2.a(+);
+ERROR HY000: Invalid usage of (+) operator: mixed with other type of join
+# mixing with natural join
+select * from t1, t2 natural join t3
+where t1.a = t2.a(+);
+ERROR HY000: Invalid usage of (+) operator: mixed with other type of join
+# mixing with nested join
+select * from t1, t2 join t3
+where t1.a = t2.a(+);
+ERROR HY000: Invalid usage of (+) operator: mixed with other type of join
+# mixing with nested join
+select * from t1, (t2, t3)
+where t1.a = t2.a(+);
+ERROR HY000: Invalid usage of (+) operator: mixed with other type of join
+DROP TABLE t1,t2,t3;
