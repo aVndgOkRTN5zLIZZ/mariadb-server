@@ -1241,33 +1241,13 @@ static void buf_flush_LRU_list_batch(ulint max, flush_counters_t *n,
   const size_t buf_lru_min_len=
     std::min((buf_pool.usable_size()) / 20 - 1, size_t{BUF_LRU_MIN_LEN});
 
-  for (buf_page_t *bpage= UT_LIST_GET_LAST(buf_pool.LRU); bpage;
+  for (buf_page_t *bpage= UT_LIST_GET_LAST(buf_pool.LRU);
+       bpage &&
+       ((UT_LIST_GET_LEN(buf_pool.LRU) > buf_lru_min_len &&
+         UT_LIST_GET_LEN(buf_pool.free) < free_limit) ||
+        recv_recovery_is_on());
        ++scanned, bpage= buf_pool.lru_hp.get())
   {
-    if (UT_LIST_GET_LEN(buf_pool.LRU) <= buf_lru_min_len ||
-        UT_LIST_GET_LEN(buf_pool.free) >= free_limit)
-    {
-      if (UNIV_UNLIKELY(to_withdraw))
-      {
-        while (!buf_pool.LRU_shrink(bpage))
-        {
-          bpage= UT_LIST_GET_PREV(LRU, bpage);
-          if (!bpage)
-            goto done;
-          if (UNIV_UNLIKELY(!(++scanned & 31)))
-          {
-            mysql_mutex_unlock(&buf_pool.mutex);
-            mysql_mutex_lock(&buf_pool.mutex);
-            to_withdraw= buf_pool.to_withdraw();
-            if (!to_withdraw)
-              break;
-          }
-        }
-      }
-      else if (!recv_recovery_is_on())
-        break;
-    }
-
     buf_page_t *prev= UT_LIST_GET_PREV(LRU, bpage);
     buf_pool.lru_hp.set(prev);
     auto state= bpage->state();
@@ -1287,7 +1267,6 @@ static void buf_flush_LRU_list_batch(ulint max, flush_counters_t *n,
       mysql_mutex_unlock(&buf_pool.mutex);
     reacquire_mutex:
       mysql_mutex_lock(&buf_pool.mutex);
-      to_withdraw= buf_pool.to_withdraw();
       continue;
     }
 
@@ -1334,7 +1313,6 @@ static void buf_flush_LRU_list_batch(ulint max, flush_counters_t *n,
           }
           mysql_mutex_lock(&buf_pool.mutex);
           buf_pool.stat.n_pages_written+= p.second;
-          to_withdraw= buf_pool.to_withdraw();
         }
         else
         {
@@ -1375,7 +1353,6 @@ static void buf_flush_LRU_list_batch(ulint max, flush_counters_t *n,
       ut_ad(buf_pool.lru_hp.is_hp(prev));
   }
 
-done:
   buf_pool.lru_hp.set(nullptr);
 
   if (space)

@@ -1523,11 +1523,6 @@ public:
     return prev;
   }
 
-  /** Try to evict a block if needed during resize()
-  @param bpage     candidate for removal
-  @return whether this block should be considered for eviction */
-  ATTRIBUTE_COLD bool LRU_shrink(buf_page_t *bpage) noexcept;
-
   /** Number of pages to read ahead */
   static constexpr uint32_t READ_AHEAD_PAGES= 64;
 
