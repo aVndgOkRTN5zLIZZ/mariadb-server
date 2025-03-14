@@ -1700,16 +1700,26 @@ ATTRIBUTE_COLD buf_pool_t::shrink_status buf_pool_t::shrink(size_t size)
   }
 
   buf_block_t *block= allocate();
-
-  for (buf_page_t *b= UT_LIST_GET_FIRST(LRU), *next; block && b; b= next)
+  size_t scanned= 0;
+  for (buf_page_t *b= lru_scan_itr.start(), *prev; block && b; b= prev)
   {
     ut_ad(b->in_LRU_list);
     ut_a(b->in_file());
 
-    next= UT_LIST_GET_NEXT(LRU, b);
+    prev= UT_LIST_GET_PREV(LRU, b);
 
     if (!b->can_relocate())
+    {
+    next:
+      if (++scanned & 31)
+        continue;
+      /* Avoid starvation by periodically releasing buf_pool.mutex. */
+      lru_scan_itr.set(prev);
+      mysql_mutex_unlock(&mutex);
+      mysql_mutex_lock(&mutex);
+      prev= lru_scan_itr.get();
       continue;
+    }
 
     const page_id_t id{b->id()};
     hash_chain &chain= page_hash.cell_get(id.fold());
@@ -1743,7 +1753,7 @@ ATTRIBUTE_COLD buf_pool_t::shrink_status buf_pool_t::shrink(size_t size)
 
       if (!b->can_relocate())
       {
-      next:
+      next_quick:
         if (have_flush_list_mutex)
           mysql_mutex_unlock(&flush_list_mutex);
         hash_lock.unlock();
@@ -1765,11 +1775,11 @@ ATTRIBUTE_COLD buf_pool_t::shrink_status buf_pool_t::shrink(size_t size)
           goto withdraw_done;
         }
         if (!block && !(block= allocate()))
-          goto next;
+          goto next_quick;
       }
 
       if (!b->frame || b < first_to_withdraw)
-        goto next;
+        goto next_quick;
 
       ut_ad(is_uncompressed_current(b));
 
@@ -1840,6 +1850,7 @@ ATTRIBUTE_COLD buf_pool_t::shrink_status buf_pool_t::shrink(size_t size)
       goto withdraw_done;
 
     block= allocate();
+    goto next;
   }
 
   mysql_mutex_lock(&flush_list_mutex);
