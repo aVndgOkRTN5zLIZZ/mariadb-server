@@ -907,6 +907,14 @@ srv_export_innodb_status(void)
 		export_vars.innodb_buffer_pool_pages_total
 		- UT_LIST_GET_LEN(buf_pool.LRU)
 		- UT_LIST_GET_LEN(buf_pool.free);
+	if (size_t shrinking = buf_pool.is_shrinking()) {
+		snprintf(export_vars.innodb_buffer_pool_resize_status,
+			 sizeof export_vars.innodb_buffer_pool_resize_status,
+			 "Withdrawing blocks. (%zu/%zu).",
+			 buf_pool.to_withdraw(), shrinking);
+	} else {
+		export_vars.innodb_buffer_pool_resize_status[0] = '\0';
+	}
 	mysql_mutex_unlock(&buf_pool.mutex);
 
 	export_vars.innodb_max_trx_id = trx_sys.get_max_trx_id();

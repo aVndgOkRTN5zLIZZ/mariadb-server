@@ -2081,6 +2081,7 @@ ATTRIBUTE_COLD void buf_pool_t::resize(size_t size, THD *thd) noexcept
     mysql_mutex_unlock(&LOCK_global_system_variables);
 
     mysql_mutex_unlock(&mutex);
+    DEBUG_SYNC_C("buf_pool_shrink_before_wakeup");
     mysql_mutex_lock(&flush_list_mutex);
     page_cleaner_wakeup(true);
     my_cond_wait(&done_flush_list, &flush_list_mutex.m_mutex);
