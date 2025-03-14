@@ -6603,9 +6603,9 @@ prepare_inplace_alter_table_dict(
 		mem_heap_alloc(ctx->heap, ctx->num_to_add_index
 			       * sizeof *ctx->add_key_numbers));
 
-	const bool pause_purge = user_table->flags2
-		& (DICT_TF2_FTS_HAS_DOC_ID | DICT_TF2_FTS)
-		|| user_table->get_ref_count() > 1;
+	const bool have_fts = user_table->flags2
+		& (DICT_TF2_FTS_HAS_DOC_ID | DICT_TF2_FTS);
+	const bool pause_purge = have_fts || user_table->get_ref_count() > 1;
 	/* Acquire a lock on the table before creating any indexes. */
 	bool table_lock_failed = false;
 
@@ -6633,7 +6633,10 @@ acquire_lock:
 	}
 
 	if (pause_purge) {
-		purge_sys.stop_FTS(*user_table);
+		purge_sys.stop_FTS();
+		if (have_fts) {
+			purge_sys.stop_FTS(*user_table, true);
+		}
 		if (error == DB_SUCCESS) {
 			error = fts_lock_tables(ctx->trx, *user_table);
 		}
