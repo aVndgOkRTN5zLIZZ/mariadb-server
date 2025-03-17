@@ -9342,26 +9342,20 @@ bool setup_oracle_join(THD *thd, COND **conds,
 
     which parses in:
 
-           nest_tableN-1 "(nest_last_join)" =>  nested_joinN-1
-          / \
-    tableN   nest_tableN-2 "(nest_last_join)" => nested_joinN-2
-            / \
-    tableN-1  nest_tableN-3 "(nest_last_join)" => nested_joinN-3
-              ...
-              / \
-         table3 nest_table1 "(nest_last_join)" => nested_join1
-               / \
+     join_list of SELECT
+       |
+       nest_tableN-1  --join_list-> NESTED_JOIN_N-1
+       join_list of NESTED_JOIN_N-1
+        /\
+  tableN  nest_tableN-2
+         ...
+           join_list of of NESTED_JOIN_1
+            /\
+      table3  nest_table1  --join_list-> NESTED_JOIN_1
+              join_list of NESTED_JOIN1
+               /\
          table2  table1
 
-    where nest_tableN - fake TABLE_LIST for the join nest and nest_joinN is
-    NEST_JOIN structure referenced from nest_tableN
-
-    next_tableN-1               reffer to NULL as embedding
-    tableN and nest_tableN-2    reffer to nest_tableN-1 as embedding
-    tableN-1 and nest_tableN-3  reffer to nest_tableN-2 as embedding
-    ...
-    table3 and nest_table1      reffer to nest_table2 as embedding
-    table2 and table1           reffer to nest_table1 as embedding
   */
   TABLE_LIST *new_from= list->table;
   {

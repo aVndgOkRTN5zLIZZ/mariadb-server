@@ -49,4 +49,38 @@ select t1.a, t4.d, t2.b, t3.c
     t4.d = t2.b(+) and
     t4.d = t3.c(+);
 
+select t1.a, t4.d, t2.b, t3.c
+  from t2, t1, t4, t3
+  where
+    t1.a = t2.b(+) and
+    t1.a = t3.c(+) and
+    t4.d = t2.b(+) and
+    t4.d = t3.c(+);
+
+explain extended
+select t1.a, t4.d, t2.b, t3.c
+  from t2, t1, t4, t3
+  where
+    t1.a = t2.b(+) and
+    t1.a = t3.c(+) and
+    t4.d = t2.b(+) and
+    t4.d = t3.c(+);
+
+select t1.a, t4.d, t2.b, t3.c
+  from t3, t4, t1, t2
+  where
+    t1.a = t2.b(+) and
+    t1.a = t3.c(+) and
+    t4.d = t2.b(+) and
+    t4.d = t3.c(+);
+
+explain extended
+select t1.a, t4.d, t2.b, t3.c
+  from t3, t4, t1, t2
+  where
+    t1.a = t2.b(+) and
+    t1.a = t3.c(+) and
+    t4.d = t2.b(+) and
+    t4.d = t3.c(+);
+
 drop table t1, t2, t3, t4;
