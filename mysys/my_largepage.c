@@ -464,6 +464,9 @@ char *my_large_virtual_alloc(size_t *size)
     while ((large_page_size= my_next_large_page_size(*size, &page_i)) != 0)
     {
       int mapflag= MAP_PRIVATE |
+#  ifdef __linux__
+        MAP_NORESERVE |
+#  endif
 #  if defined MAP_HUGETLB /* linux 2.6.32 */
         MAP_HUGETLB |
 #   if defined MAP_HUGE_SHIFT /* Linux-3.8+ */
@@ -503,7 +506,11 @@ char *my_large_virtual_alloc(size_t *size)
     }
   }
 
-  ptr= mmap(NULL, *size, PROT_READ | PROT_WRITE, MAP_PRIVATE | OS_MAP_ANON,
+  ptr= mmap(NULL, *size, PROT_READ | PROT_WRITE,
+#  ifdef __linux__
+            MAP_NORESERVE |
+#  endif
+            MAP_PRIVATE | OS_MAP_ANON,
             -1, 0);
   if (ptr == (void*) -1)
     ptr= NULL;
