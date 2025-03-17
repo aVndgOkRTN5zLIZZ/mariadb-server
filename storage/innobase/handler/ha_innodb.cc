@@ -3730,11 +3730,18 @@ static MYSQL_SYSVAR_SIZE_T(buffer_pool_size_auto_min,
 #endif
 
 static MYSQL_SYSVAR_SIZE_T(buffer_pool_size_max, buf_pool.size_in_bytes_max,
-  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
-  "Maximum innodb_buffer_pool_size",
-  nullptr, nullptr, 0, 0,
-  size_t(-ssize_t(innodb_buffer_pool_extent_size)),
-  innodb_buffer_pool_extent_size);
+                           PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+                           "Maximum innodb_buffer_pool_size",
+                           nullptr, nullptr,
+#if defined _WIN32 || defined __linux__
+# if SIZEOF_SIZE_T < 8
+                           1U << 30, 2U << 20,
+# else
+                           16ULL << 40, 8U << 20,
+# endif
+#endif
+                           size_t(-ssize_t(innodb_buffer_pool_extent_size)),
+                           innodb_buffer_pool_extent_size);
 
 static MYSQL_SYSVAR_UINT(log_write_ahead_size, log_sys.write_size,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
@@ -3825,10 +3832,14 @@ static int innodb_init_params()
     (buf_pool.blocks_in_bytes(BUF_LRU_MIN_LEN + BUF_LRU_MIN_LEN / 4),
      1U << 20);
   size_t innodb_buffer_pool_size= buf_pool.size_in_bytes_requested;
+#if defined _WIN32 || defined __linux__
+#else
   if (!buf_pool.size_in_bytes_max)
     buf_pool.size_in_bytes_max= ut_calc_align(innodb_buffer_pool_size,
                                               innodb_buffer_pool_extent_size);
-  else if (innodb_buffer_pool_size > buf_pool.size_in_bytes_max)
+  else
+#endif
+  if (innodb_buffer_pool_size > buf_pool.size_in_bytes_max)
     buf_pool.size_in_bytes_requested= buf_pool.size_in_bytes_max;
   MYSQL_SYSVAR_NAME(buffer_pool_size).max_val= buf_pool.size_in_bytes_max;
 #ifdef __linux__
