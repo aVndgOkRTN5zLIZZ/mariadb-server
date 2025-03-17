@@ -8865,7 +8865,11 @@ ora_join_process_expression(THD *thd, Item *cond,
     param.outer->ora_join_table_no;
   if (param.inner.elements > 0)
   {
-    outer_tab->on_conds.push_back(cond);
+    {
+      // Permanent list can be used in AND
+      Query_arena_stmt on_stmt_arena(thd);
+      outer_tab->on_conds.push_back(cond);
+    }
     List_iterator_fast<TABLE_LIST> it(param.inner);
     TABLE_LIST *t;
     while ((t= it++))
@@ -9154,15 +9158,51 @@ static void dbug_ptint_tab_pos(table_pos *t)
                tbl->table->alias.str));
   }
 }
+
+
+static void dbug_ptint_table_name(const char *prefix,
+                                  const char *legend, TABLE_LIST *t)
+{
+  if (t)
+    DBUG_PRINT(prefix, ("%s Table: '%s' %p  outer: %s  on: %s", legend,
+                        (t->alias.str?t->alias.str:""), t,
+                        (t->outer_join ? "YES" : "no"),
+                        (t->on_expr ? dbug_print_item(t->on_expr) : "NULL")));
+
+  else
+    DBUG_PRINT(prefix, ("%s Table: NULL", legend));
+}
+
+static void dbug_ptint_table(TABLE_LIST *t)
+{
+  dbug_ptint_table_name("XXX", "---", t);
+  dbug_ptint_table_name("INFO", "Embedding", t->embedding);
+  if (t->join_list)
+  {
+    DBUG_PRINT("INFO", ("Join list: %p elements %d",
+                        t->join_list, t->join_list->elements));
+    List_iterator_fast<TABLE_LIST> it(*t->join_list);
+    TABLE_LIST *tbl;
+    while ((tbl= it++))
+    {
+      dbug_ptint_table_name("INFO", "join_list", tbl);
+    }
+  }
+  else
+    DBUG_PRINT("INFO", ("Join list: NULL"));
+}
 #endif
 
 /**
   Process Oracle outer join (+) in WHERE
 */
-
-bool setup_oracle_join(THD *thd, COND **conds, TABLE_LIST *tables, uint n_tables)
+static
+bool setup_oracle_join(THD *thd, COND **conds,
+                       TABLE_LIST *tables,
+                       SQL_I_List<TABLE_LIST> &select_table_list)
 {
   DBUG_ENTER("setup_oracle_join");
+  uint n_tables= select_table_list.elements;
   Item_cond_and *and_item= NULL;
   if (!(*conds)->with_ora_join() || n_tables == 0)
     DBUG_RETURN(FALSE); // no oracle joins
@@ -9178,12 +9218,14 @@ bool setup_oracle_join(THD *thd, COND **conds, TABLE_LIST *tables, uint n_tables
     if (table->outer_join || table->nested_join || table->natural_join ||
         table->embedding || table->straight)
     {
+      // mixed with other JOIN operations
       my_error(ER_INVALID_USE_OF_ORA_JOIN_MIX, MYF(0));
       DBUG_RETURN(TRUE);
     }
     t->next= NULL;
     t->inner_side.empty();
     t->outer_side.empty();
+    t->on_conds.empty();
     t->table= table;
     table->ora_join_table_no= t->order= i;
     t->processed= FALSE;
@@ -9241,14 +9283,14 @@ bool setup_oracle_join(THD *thd, COND **conds, TABLE_LIST *tables, uint n_tables
     /*
       we have to sort this backward becouse after insert the list will be
       reverted
-      */
+    */
     if (tab[i].outer_side.elements > 1)
        bubble_sort<table_pos>(&tab[i].outer_side,
                               table_pos_sort, NULL);
 #ifndef DBUG_OFF
     dbug_ptint_tab_pos(tab + i);
+    dbug_ptint_table(tab[i].table);
 #endif
-
   }
   // order tables
   table_pos *list= NULL;
@@ -9286,12 +9328,137 @@ bool setup_oracle_join(THD *thd, COND **conds, TABLE_LIST *tables, uint n_tables
     DBUG_RETURN(TRUE);
   }
 
+#ifndef DBUG_OFF
   for(table_pos *t= list; t != NULL; t= t->next)
   {
-#ifndef DBUG_OFF
     dbug_ptint_tab_pos(t);
-#endif
   }
+#endif
+
+  /*
+    Now we build new permanent list of table according to our new order
+
+    table1 [outer left] join table2 ... [outer left] join tableN
+
+    which parses in:
+
+           nest_tableN-1 "(nest_last_join)" =>  nested_joinN-1
+          / \
+    tableN   nest_tableN-2 "(nest_last_join)" => nested_joinN-2
+            / \
+    tableN-1  nest_tableN-3 "(nest_last_join)" => nested_joinN-3
+              ...
+              / \
+         table3 nest_table1 "(nest_last_join)" => nested_join1
+               / \
+         table2  table1
+
+    where nest_tableN - fake TABLE_LIST for the join nest and nest_joinN is
+    NEST_JOIN structure referenced from nest_tableN
+
+    next_tableN-1               reffer to NULL as embedding
+    tableN and nest_tableN-2    reffer to nest_tableN-1 as embedding
+    tableN-1 and nest_tableN-3  reffer to nest_tableN-2 as embedding
+    ...
+    table3 and nest_table1      reffer to nest_table2 as embedding
+    table2 and table1           reffer to nest_table1 as embedding
+  */
+  TABLE_LIST *new_from= list->table;
+  {
+    // changes are permanent
+    Query_arena_stmt on_stmt_arena(thd);
+    TABLE_LIST *prev_tabe= list->table;
+    TABLE_LIST *nest_table_lists;
+    List<TABLE_LIST> *select_join_list= list->table->join_list;
+    NESTED_JOIN *nested_joins;
+    if (!(nest_table_lists=
+          (TABLE_LIST*)thd->calloc(ALIGN_SIZE(sizeof(TABLE_LIST)) *
+                                     (n_tables -1) +
+                                   ALIGN_SIZE(sizeof(NESTED_JOIN)) *
+                                     (n_tables -1))))
+    {
+       DBUG_RETURN(TRUE); // EOM
+    }
+    nested_joins= (NESTED_JOIN *)(((char*)nest_table_lists) +
+                                  ALIGN_SIZE(sizeof(TABLE_LIST)) *
+                                  (n_tables -1));
+    nested_joins[0].join_list.empty();
+    nested_joins[0].join_list.push_front(list->table);
+    DBUG_ASSERT(list->table->embedding == NULL);
+    list->table->embedding= nest_table_lists;
+    list->table->join_list= &nested_joins->join_list;
+    DBUG_ASSERT(list->table->outer_join == 0);
+    uint i;
+    table_pos *curr;
+    for(i=0, curr= list->next; curr; i++, curr= curr->next)
+    {
+      DBUG_ASSERT(i <= n_tables - 2);
+      TABLE_LIST *next_embedding= ((i < n_tables - 2) ?
+                                    nest_table_lists + (i+1) :
+                                    NULL);
+      // jpoin type
+      DBUG_ASSERT(curr->table->outer_join == 0);
+      DBUG_ASSERT(curr->table->on_expr == 0);
+      if (curr->inner_side.elements)
+      {
+        DBUG_ASSERT(curr->on_conds.elements > 0);
+        curr->table->outer_join|=JOIN_TYPE_LEFT;
+        if (curr->on_conds.elements == 1)
+        {
+          curr->table->on_expr= curr->on_conds.head();
+        }
+        else
+        {
+          curr->table->on_expr=
+            new(thd->mem_root) Item_cond_and(thd, curr->on_conds);
+        }
+      }
+      else
+      {
+        DBUG_ASSERT(curr->on_conds.elements == 0);
+      }
+
+      // add real table
+      prev_tabe->next_local= curr->table;
+      nested_joins[i].join_list.push_front(curr->table);
+      DBUG_ASSERT(curr->table->embedding == NULL);
+      curr->table->embedding= nest_table_lists + i;
+      curr->table->join_list= &nested_joins[i].join_list;
+      // prepare fake table
+      nest_table_lists[i].alias= {STRING_WITH_LEN("(nest_last_join)")};
+      nest_table_lists[i].embedding= next_embedding;
+      nest_table_lists[i].nested_join= nested_joins + i;
+
+      if (next_embedding)
+      {
+        nested_joins[i+1].join_list.empty();
+        nested_joins[i+1].join_list.push_front(nest_table_lists + i);
+        nest_table_lists[i].join_list= &nested_joins[i + 1].join_list;
+      }
+      else
+      {
+        DBUG_ASSERT(i == n_tables - 2);
+        // all tables should be there becaouse query was without JOIN
+        // operatirs except oracle ones
+        DBUG_ASSERT(select_join_list->elements == n_tables);
+        select_join_list->empty();
+        select_join_list->push_front(nest_table_lists + i);
+        nest_table_lists[i].join_list= select_join_list;
+      }
+
+      prev_tabe= curr->table;
+    }
+    prev_tabe->next_local= NULL;
+    select_table_list.first= new_from;
+    select_table_list.next= &prev_tabe->next_local;
+  }
+  DBUG_PRINT("YYY", ("new from %p", new_from));
+#ifndef DBUG_OFF
+  for (TABLE_LIST *t= new_from; t; t= t->next_local)
+  {
+    dbug_ptint_table(t);
+  }
+#endif
 
   // clean after processing
   if (and_item)
@@ -9384,7 +9551,7 @@ int setup_conds(THD *thd, TABLE_LIST *tables, List<TABLE_LIST> &leaves,
     if ((*conds)->fix_fields_if_needed_for_bool(thd, conds))
       goto err_no_arena;
 
-    if (setup_oracle_join(thd, conds, tables, select_lex->table_list.elements))
+    if (setup_oracle_join(thd, conds, tables, select_lex->table_list))
       goto err_no_arena;
   }
 
