@@ -173,6 +173,7 @@ extern void my_free(void *ptr);
 extern void *my_memdup(PSI_memory_key key, const void *from,size_t length,myf MyFlags);
 extern char *my_strdup(PSI_memory_key key, const char *from,myf MyFlags);
 extern char *my_strndup(PSI_memory_key key, const char *from, size_t length, myf MyFlags);
+extern my_bool my_use_large_pages;
 
 int my_init_large_pages(void);
 uchar *my_large_malloc(size_t *size, myf my_flags);

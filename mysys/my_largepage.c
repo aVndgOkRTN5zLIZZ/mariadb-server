@@ -454,7 +454,7 @@ char *my_large_virtual_alloc(size_t *size)
   more memory later.
   Every implementation returns a zero filled buffer here.
 */
-static char *my_large_mmap(size_t *size, int prot)
+char *my_large_mmap(size_t *size, int prot)
 {
   char *ptr;
   DBUG_ENTER("my_large_virtual_alloc");
@@ -532,11 +532,6 @@ static char *my_large_mmap(size_t *size, int prot)
 char *my_large_virtual_alloc(size_t *size)
 {
   return my_large_mmap(size, PROT_READ | PROT_WRITE);
-}
-
-char *my_virtual_mem_reserve(size_t *size)
-{
-  return my_large_mmap(size, PROT_NONE);
 }
 #endif
 

@@ -856,9 +856,6 @@ buf_page_is_corrupted(bool check_lsn, const byte *read_buf, uint32_t fsp_flags) 
 }
 
 #ifndef UNIV_INNOCHECKSUM
-# ifndef _WIN32
-extern "C" my_bool my_use_large_pages;
-# endif
 
 #ifdef __linux__
 #include <poll.h>

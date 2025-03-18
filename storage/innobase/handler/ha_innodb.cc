@@ -45,6 +45,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <table_cache.h>
 #include <my_check_opt.h>
 #include <my_bitmap.h>
+#include <my_sys.h>
 #include <mysql/service_thd_alloc.h>
 #include <mysql/service_thd_wait.h>
 #include <mysql/service_print_check_msg.h>
@@ -3735,10 +3736,22 @@ static MYSQL_SYSVAR_SIZE_T(buffer_pool_size_max, buf_pool.size_in_bytes_max,
                            nullptr, nullptr,
 #if defined _WIN32 || defined __linux__
 # if SIZEOF_SIZE_T < 8
-                           1U << 30, 2U << 20,
+#  ifdef __SANITIZE_ADDRESS__
+                           512U << 20, /* 512MiB works WITH_ASAN */
+#  else
+                           1U << 30, /* 1GiB to play it safe */
+#  endif
+                           2U << 20,
 # else
-                           16ULL << 40, 8U << 20,
+#  ifdef __SANITIZE_ADDRESS__
+                           1U << 30, /* 1GiB works WITH_ASAN */
+#  else
+                           64ULL << 40, /* 64TiB ought to be enough */
+#  endif
+                           8U << 20,
 # endif
+#else
+                           0, 0,
 #endif
                            size_t(-ssize_t(innodb_buffer_pool_extent_size)),
                            innodb_buffer_pool_extent_size);
@@ -3810,10 +3823,6 @@ compression_algorithm_is_not_loaded(ulong compression_algorithm, myf flags)
     page_compression_algorithms[compression_algorithm], compression_algorithm);
   return 1;
 }
-
-#ifndef _WIN32
-extern "C" my_bool my_use_large_pages;
-#endif
 
 /** Initialize, validate and normalize the InnoDB startup parameters.
 @return failure code

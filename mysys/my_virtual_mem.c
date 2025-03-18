@@ -31,11 +31,13 @@
 
   We try to respect use_large_pages setting, on Windows and Linux
 */
-extern my_bool my_use_large_pages;
+#ifndef _WIN32
+char *my_large_mmap(size_t *size, int prot);
+#endif
 
-#ifdef _WIN32
 char *my_virtual_mem_reserve(size_t *size)
 {
+#ifdef _WIN32
   size_t aligned_size= *size;
   if (my_use_large_pages)
     aligned_size= MY_ALIGN(aligned_size, GetLargePageMinimum());
@@ -45,9 +47,12 @@ char *my_virtual_mem_reserve(size_t *size)
   else
     *size= aligned_size;
   return ptr;
+#else
+  return my_large_mmap(size, PROT_NONE);
+#endif
 }
 
-# ifndef DBUG_OFF
+#if defined _WIN32 && !defined DBUG_OFF
 static my_bool is_memory_committed(char *ptr, size_t size)
 {
   MEMORY_BASIC_INFORMATION mbi;
@@ -59,7 +64,6 @@ static my_bool is_memory_committed(char *ptr, size_t size)
   else
     return FALSE;
 }
-# endif
 #endif
 
 char *my_virtual_mem_commit(char *ptr, size_t size)
@@ -120,6 +124,7 @@ void my_virtual_mem_decommit(char *ptr, size_t size)
     return;
 # endif
   madvise(ptr, size, MADV_DONTNEED);
+  mprotect(ptr, size, PROT_NONE);
 #endif
   update_malloc_size(-(longlong) size, 0);
 }
