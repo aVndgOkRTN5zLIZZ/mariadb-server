@@ -62,6 +62,7 @@ Created 11/5/1995 Heikki Tuuri
 #include <map>
 #include <sstream>
 #include "log.h"
+#include <my_virtual_mem.h>
 
 using st_::span;
 
@@ -1372,7 +1373,7 @@ bool buf_pool_t::create() noexcept
  retry:
   {
     NUMA_MEMPOLICY_INTERLEAVE_IN_SCOPE;
-    memory_unaligned= reinterpret_cast<char*>(my_large_virtual_alloc(&size));
+    memory_unaligned= my_virtual_mem_reserve(size);
   }
 
   if (!memory_unaligned)
@@ -1384,20 +1385,10 @@ bool buf_pool_t::create() noexcept
 
   if (size < size_in_bytes_max + alignment_waste)
   {
-#ifdef _WIN32
-    if (!VirtualFree(memory_unaligned, 0, MEM_RELEASE));
-#else
-    if (munmap(memory_unaligned, size));
-#endif
-    else
-    {
-      size+= 1 +
-        (~size_t(memory_unaligned) & (innodb_buffer_pool_extent_size - 1));
-      goto retry;
-    }
-
-    memory_unaligned= nullptr;
-    goto oom;
+    my_virtual_mem_release(memory_unaligned, size);
+    size+= 1 +
+      (~size_t(memory_unaligned) & (innodb_buffer_pool_extent_size - 1));
+    goto retry;
   }
 
   MEM_UNDEFINED(memory_unaligned, size);
@@ -1417,21 +1408,13 @@ bool buf_pool_t::create() noexcept
 #ifdef UNIV_PFS_MEMORY
   PSI_MEMORY_CALL(memory_alloc)(mem_key_buf_buf_pool, actual_size, &owner);
 #endif
-
-#ifdef _WIN32
-  if (!VirtualAlloc(memory, actual_size, MEM_COMMIT, PAGE_READWRITE))
+  if (!my_virtual_mem_commit(memory, actual_size))
   {
-    VirtualFree(memory_unaligned, 0, MEM_RELEASE);
+    my_virtual_mem_release(memory_unaligned, size_unaligned);
     memory= nullptr;
     memory_unaligned= nullptr;
     goto oom;
   }
-#elif defined MADV_DONTNEED
-  if (alignment_waste)
-    madvise(memory_unaligned, alignment_waste, MADV_DONTNEED);
-  if (size_t reserve= size - actual_size)
-    madvise(memory + actual_size, reserve, MADV_DONTNEED);
-#endif
 
 #ifdef HAVE_LIBNUMA
   if (srv_numa_interleave)
@@ -1582,14 +1565,8 @@ void buf_pool_t::close() noexcept
     owner= nullptr;
 #endif
     os_total_large_mem_allocated-= size;
-    MEM_MAKE_ADDRESSABLE(memory_unaligned, size_unaligned);
-#ifdef _WIN32
-    VirtualFree(memory_unaligned, 0, MEM_RELEASE);
-#elif defined HAVE_MMAP
-    munmap(memory_unaligned, size_unaligned);
-#else
-# error "virtual memory is needed"
-#endif
+    my_virtual_mem_decommit(memory, size);
+    my_virtual_mem_release(memory_unaligned, size_unaligned);
     memory= nullptr;
     memory_unaligned= nullptr;
   }
@@ -1875,23 +1852,11 @@ ATTRIBUTE_COLD buf_pool_t::shrink_status buf_pool_t::shrink(size_t size)
   return SHRINK_IN_PROGRESS;
 }
 
-#ifdef _WIN32
-extern "C" my_bool my_use_large_pages;
-#endif
-
 ATTRIBUTE_COLD void buf_pool_t::resize(size_t size, THD *thd) noexcept
 {
   ut_ad(this == &buf_pool);
   mysql_mutex_assert_owner(&LOCK_global_system_variables);
   ut_ad(size <= size_in_bytes_max);
-#ifdef _WIN32
-  if (my_use_large_pages)
-  {
-    my_error(ER_VARIABLE_IS_READONLY, MYF(0), "innodb_buffer_pool_size",
-             "large_pages=0");
-    return;
-  }
-#endif
 
   size_t n_blocks_new= get_n_blocks(size);
 
@@ -1928,19 +1893,18 @@ ATTRIBUTE_COLD void buf_pool_t::resize(size_t size, THD *thd) noexcept
     n_blocks_new > n_blocks * 2 || n_blocks > n_blocks_new * 2;
   const ssize_t n_blocks_removed= n_blocks - n_blocks_new;
 
+  bool commited= false;
   if (n_blocks_removed <= 0)
   {
-#ifdef _WIN32
-    if (!VirtualAlloc(memory, size, MEM_COMMIT, PAGE_READWRITE))
+    if (!my_virtual_mem_commit(memory + old_size, size - old_size))
     {
       mysql_mutex_unlock(&mutex);
       sql_print_error("InnoDB: Cannot commit innodb_buffer_pool_size=%zum",
-                      size >> 20);
+                      (size - old_size) >> 20);
       my_error(ER_OUT_OF_RESOURCES, MYF(0));
       return;
     }
-#endif
-    MEM_MAKE_ADDRESSABLE(memory + old_size, size - old_size);
+    commited= true;
     size_in_bytes_requested= size;
     size_in_bytes= size;
 
@@ -2015,21 +1979,15 @@ ATTRIBUTE_COLD void buf_pool_t::resize(size_t size, THD *thd) noexcept
       os_total_large_mem_allocated+= d;
       if (d > 0)
       {
-#ifdef _WIN32
-        VirtualAlloc(memory + old_size, size_t(d), MEM_COMMIT, PAGE_READWRITE);
-#endif
+        /* Already committed memory earlier */
+        ut_a(commited);
 #ifdef UNIV_PFS_MEMORY
         PSI_MEMORY_CALL(memory_alloc)(mem_key_buf_buf_pool, d, &owner);
 #endif
       }
       else
       {
-        MEM_NOACCESS(memory + size, size_t(-d));
-#ifdef _WIN32
-        VirtualFree(memory + size, size_t(-d), MEM_DECOMMIT);
-#elif defined MADV_DONTNEED
-        madvise(memory + size, size_in_bytes_max - size, MADV_DONTNEED);
-#endif
+        my_virtual_mem_decommit(memory + size, (size_t) -d);
 #ifdef UNIV_PFS_MEMORY
         PSI_MEMORY_CALL(memory_free)(mem_key_buf_buf_pool, size_t(-d), owner);
 #endif

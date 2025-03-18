@@ -35,13 +35,12 @@ extern int memcntl(caddr_t, size_t, int, caddr_t, int, int);
 #endif /* __sun__ ... */
 #endif /* HAVE_SOLARIS_LARGE_PAGES */
 
+my_bool my_use_large_pages;
+
 #ifdef _WIN32
 static size_t my_large_page_size;
-my_bool my_use_large_pages;
-#elif defined HAVE_MMAP
-static my_bool my_use_large_pages;
-#else
-# define my_use_large_pages 0
+#elif !defined(HAVE_MMAP)
+#error "C'mon, there is mmap on any Unix"
 #endif
 
 #if defined(HAVE_GETPAGESIZES) || defined(__linux__)
