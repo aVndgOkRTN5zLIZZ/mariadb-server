@@ -396,10 +396,11 @@ void buf_dblwr_t::recover() noexcept
     {
       /* These pages does not appear to belong to any tablespace.
       There is a possibility that this page could be
-      encrypted using full_crc32 format. If innodb encounters
-      any corrupted encrypted page during recovery then
-      InnoDB should use this page to find the valid page.
-      See find_encrypted_page() */
+      encrypted/compressed using full_crc32 format.
+      If innodb encounters any corrupted encrypted/compressed
+      page during recovery then InnoDB should use this page to
+      find the valid page.
+      See find_encrypted_page()/find_page_compressed() */
       encrypted_pages.push_back(*i);
       continue;
     }
