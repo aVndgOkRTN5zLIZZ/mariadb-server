@@ -4671,6 +4671,9 @@ exit:
     if (part_share->auto_inc_initialized)
       set_auto_increment_if_higher(table->found_next_number_field);
   }
+  if (error)
+    m_last_part= old_part_id;
+
   DBUG_RETURN(error);
 }
 
