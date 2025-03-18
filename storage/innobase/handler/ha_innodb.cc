@@ -3811,6 +3811,10 @@ compression_algorithm_is_not_loaded(ulong compression_algorithm, myf flags)
   return 1;
 }
 
+#ifndef _WIN32
+extern "C" my_bool my_use_large_pages;
+#endif
+
 /** Initialize, validate and normalize the InnoDB startup parameters.
 @return failure code
 @retval 0 on success
@@ -3839,7 +3843,10 @@ static int innodb_init_params()
                                               innodb_buffer_pool_extent_size);
   else
 #endif
-  if (innodb_buffer_pool_size > buf_pool.size_in_bytes_max)
+  if (innodb_buffer_pool_size > buf_pool.size_in_bytes_max ||
+      IF_WIN(false /* Only on Windows, we may be able to resize huge pages */,
+             (innodb_buffer_pool_size != buf_pool.size_in_bytes_max &&
+              my_use_large_pages)))
     buf_pool.size_in_bytes_requested= buf_pool.size_in_bytes_max;
   MYSQL_SYSVAR_NAME(buffer_pool_size).max_val= buf_pool.size_in_bytes_max;
 #ifdef __linux__

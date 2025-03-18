@@ -35,13 +35,11 @@ extern int memcntl(caddr_t, size_t, int, caddr_t, int, int);
 #endif /* __sun__ ... */
 #endif /* HAVE_SOLARIS_LARGE_PAGES */
 
+
+my_bool my_use_large_pages;
+
 #ifdef _WIN32
 static size_t my_large_page_size;
-my_bool my_use_large_pages;
-#elif defined HAVE_MMAP
-static my_bool my_use_large_pages;
-#else
-# define my_use_large_pages 0
 #endif
 
 #if defined(HAVE_GETPAGESIZES) || defined(__linux__)
@@ -168,7 +166,7 @@ static void my_get_large_page_sizes(size_t sizes[])
   @retval  a large page size that is valid on this system or 0 if no large page
            size possible.
 */
-#if defined(HAVE_MMAP) && !defined(_WIN32)
+#ifndef _WIN32
 static size_t my_next_large_page_size(size_t sz, int *start)
 {
   DBUG_ENTER("my_next_large_page_size");
@@ -184,7 +182,7 @@ static size_t my_next_large_page_size(size_t sz, int *start)
   }
   DBUG_RETURN(0);
 }
-#endif /* defined(MMAP) || !defined(_WIN32) */
+#endif
 
 
 int my_init_large_pages(void)
@@ -202,11 +200,6 @@ int my_init_large_pages(void)
 
   my_use_large_pages= 1;
   my_get_large_page_sizes(my_large_page_sizes);
-
-#ifdef my_use_large_pages
-  my_printf_error(EE_OUTOFMEMORY, "No large page support on this platform",
-                  MYF(MY_WME));
-#endif
 
 #ifdef HAVE_SOLARIS_LARGE_PAGES
   extern my_bool opt_super_large_pages;
@@ -429,7 +422,7 @@ uchar *my_large_malloc(size_t *size, myf my_flags)
   DBUG_RETURN(ptr);
 }
 
-#if defined _WIN32 || defined HAVE_MMAP
+#ifdef _WIN32
 /**
   Special large pages allocator, with possibility to commit to allocating
   more memory later.
@@ -440,7 +433,6 @@ char *my_large_virtual_alloc(size_t *size)
   char *ptr;
   DBUG_ENTER("my_large_virtual_alloc");
 
-# ifdef _WIN32
   if (my_use_large_pages)
   {
     size_t s= *size;
@@ -455,35 +447,47 @@ char *my_large_virtual_alloc(size_t *size)
   }
 
   DBUG_RETURN(VirtualAlloc(NULL, *size, MEM_RESERVE, PAGE_READWRITE));
-# else
+}
+#elif defined HAVE_MMAP
+/**
+  Special large pages allocator, with possibility to commit to allocating
+  more memory later.
+  Every implementation returns a zero filled buffer here.
+*/
+static char *my_large_mmap(size_t *size, int prot)
+{
+  char *ptr;
+  DBUG_ENTER("my_large_virtual_alloc");
+
   if (my_use_large_pages)
   {
     size_t large_page_size;
     int page_i= 0;
+    prot= PROT_READ | PROT_WRITE;
 
     while ((large_page_size= my_next_large_page_size(*size, &page_i)) != 0)
     {
       int mapflag= MAP_PRIVATE |
-#  ifdef __linux__
-        MAP_NORESERVE |
-#  endif
-#  if defined MAP_HUGETLB /* linux 2.6.32 */
+# ifdef __linux__
+        MAP_POPULATE |
+# endif
+# if defined MAP_HUGETLB /* linux 2.6.32 */
         MAP_HUGETLB |
-#   if defined MAP_HUGE_SHIFT /* Linux-3.8+ */
+#  if defined MAP_HUGE_SHIFT /* Linux-3.8+ */
         my_bit_log2_size_t(large_page_size) << MAP_HUGE_SHIFT |
-#   else
-#    warning "No explicit large page (HUGETLB pages) support in Linux < 3.8"
-#   endif
-#  elif defined MAP_ALIGNED
-        MAP_ALIGNED(my_bit_log2_size_t(large_page_size)) |
-#   if defined(MAP_ALIGNED_SUPER)
-        MAP_ALIGNED_SUPER |
-#   endif
+#  else
+#   warning "No explicit large page (HUGETLB pages) support in Linux < 3.8"
 #  endif
+# elif defined MAP_ALIGNED
+        MAP_ALIGNED(my_bit_log2_size_t(large_page_size)) |
+#  if defined MAP_ALIGNED_SUPER
+        MAP_ALIGNED_SUPER |
+#  endif
+# endif
         OS_MAP_ANON;
 
       size_t aligned_size= MY_ALIGN(*size, (size_t) large_page_size);
-      ptr= mmap(NULL, aligned_size, PROT_READ | PROT_WRITE, mapflag, -1, 0);
+      ptr= mmap(NULL, aligned_size, prot, mapflag, -1, 0);
       if (ptr == (void*) -1)
       {
         ptr= NULL;
@@ -506,17 +510,33 @@ char *my_large_virtual_alloc(size_t *size)
     }
   }
 
-  ptr= mmap(NULL, *size, PROT_READ | PROT_WRITE,
-#  ifdef __linux__
+  ptr= mmap(NULL, *size, prot,
+# ifdef __linux__
             MAP_NORESERVE |
-#  endif
-            MAP_PRIVATE | OS_MAP_ANON,
-            -1, 0);
-  if (ptr == (void*) -1)
+# endif
+            MAP_PRIVATE | OS_MAP_ANON, -1, 0);
+  if (ptr == MAP_FAILED)
+  {
+    my_error(EE_OUTOFMEMORY, MYF(ME_BELL + ME_ERROR_LOG), size);
     ptr= NULL;
+  }
 
   DBUG_RETURN(ptr);
-# endif
+}
+
+/**
+  Special large pages allocator, with possibility to commit to allocating
+  more memory later.
+  Every implementation returns a zero filled buffer here.
+*/
+char *my_large_virtual_alloc(size_t *size)
+{
+  return my_large_mmap(size, PROT_READ | PROT_WRITE);
+}
+
+char *my_virtual_mem_reserve(size_t *size)
+{
+  return my_large_mmap(size, PROT_NONE);
 }
 #endif
 
