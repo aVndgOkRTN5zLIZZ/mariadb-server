@@ -3703,8 +3703,7 @@ public:
     if (with_ora_join())
     {
       // oracle join used in OR
-      my_error(ER_INVALID_USE_OF_ORA_JOIN_WRONG_FUNC, MYF(0));
-      return (TRUE);
+      ((ora_join_processor_param *) arg)->or_present= true;
     }
     return (FALSE);
   }

@@ -8852,7 +8852,7 @@ ora_join_process_expression(THD *thd, Item *cond,
 
   // collect info about relations and report error if there are some
   struct ora_join_processor_param param;
-  param.outer= NULL; param.inner.empty();
+  param.outer= NULL; param.inner.empty(); param.or_present= FALSE;
   if (cond->walk(&Item::ora_join_processor, FALSE, (void *)(&param)))
     DBUG_RETURN(EXP_ERROR);
 
@@ -8865,6 +8865,11 @@ ora_join_process_expression(THD *thd, Item *cond,
     param.outer->ora_join_table_no;
   if (param.inner.elements > 0)
   {
+    if (param.or_present)
+    {
+      my_error(ER_INVALID_USE_OF_ORA_JOIN_WRONG_FUNC, MYF(0));
+      DBUG_RETURN(EXP_ERROR);
+    }
     {
       // Permanent list can be used in AND
       Query_arena_stmt on_stmt_arena(thd);
@@ -9125,7 +9130,10 @@ static bool put_after(THD *thd,
       }
     }
   }
-
+  table_pos *next= tab->next;
+  table_pos **tmp=  &tab->next;
+  process_outer_relations(thd, tab, tmp, processed, n_tables);
+  *tmp= next; // return "tail" of the list (if needed)
 
   return FALSE;
 }

@@ -6239,6 +6239,22 @@ Item_field::fix_outer_field(THD *thd, Field **from_field, Item **reference)
   return 1;
 }
 
+bool Item_field::check_ora_join(Item **reference, bool outer_fixed)
+{
+  if(with_ora_join())
+  {
+    if (outer_fixed) // Oracle join operator is local
+    {
+      my_error(ER_INVALID_USE_OF_ORA_JOIN_OUTER, MYF(0), name.str);
+      return TRUE;
+    }
+    // Keep flag about oracle join if view fied was resolved
+    if (reference[0] != this) // resolved to a new field
+      reference[0]->copy_flags(this, item_with_t::ORA_JOIN);
+  }
+  return FALSE;
+}
+
 
 /**
   Resolve the name of a column reference.
@@ -6373,7 +6389,7 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
             set_max_sum_func_level(thd, select);
             set_field(new_field);
             depended_from= (*((Item_field**)res))->depended_from;
-            return 0;
+            return check_ora_join(reference, false);
           }
           else
           {
@@ -6400,7 +6416,7 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
               its arguments are not defined.
             */
             set_max_sum_func_level(thd, select);
-            return FALSE;
+            return check_ora_join(reference, false);
           }
         }
       }
@@ -6455,7 +6471,7 @@ bool Item_field::fix_fields(THD *thd, Item **reference)
       Also we suppose that view can't be changed during PS/SP life.
     */
     if (from_field == view_ref_found)
-      return FALSE;
+      return check_ora_join(reference, outer_fixed);
 
     set_field(from_field);
   }
@@ -6562,7 +6578,7 @@ mark_non_agg_field:
         select_lex->set_non_agg_field_used(true);
     }
   }
-  return FALSE;
+  return check_ora_join(reference, outer_fixed);
 
 error:
   context->process_error(thd);
@@ -10104,10 +10120,10 @@ bool Item_default_value::val_native_result(THD *thd, Native *to)
 }
 
 
-bool Item_ident::ora_join_processor_helper(ora_join_processor_param *arg)
+bool Item_ident::ora_join_processor_helper(ora_join_processor_param *arg,
+                                           TABLE_LIST *table)
 {
   DBUG_ASSERT(fixed());
-  DBUG_ASSERT(cached_table);
   TABLE_LIST *err_table= NULL;
 
   if (with_ora_join())
@@ -10115,11 +10131,11 @@ bool Item_ident::ora_join_processor_helper(ora_join_processor_param *arg)
     // OUTER table
     if (arg->outer == NULL)
     {
-      arg->outer= cached_table;
+      arg->outer= table;
       List_iterator_fast<TABLE_LIST> it(arg->inner);
       TABLE_LIST *t;
       while ((t= it++))
-        if (t == cached_table)
+        if (t == table)
         {
           err_table= t;
           goto err;
@@ -10127,7 +10143,7 @@ bool Item_ident::ora_join_processor_helper(ora_join_processor_param *arg)
     }
     else
     {
-      if (arg->outer != cached_table)
+      if (arg->outer != table)
       {
         err_table= arg->outer;
         goto err;
@@ -10140,40 +10156,46 @@ bool Item_ident::ora_join_processor_helper(ora_join_processor_param *arg)
     List_iterator_fast<TABLE_LIST> it(arg->inner);
     TABLE_LIST *t;
     while ((t= it++))
-      if (t == cached_table)
+      if (t == table)
         break;
     if (t == NULL)
     {
-      if (cached_table == arg->outer)
+      if (table == arg->outer)
       {
         err_table= arg->outer;
         goto err;
       }
-      arg->inner.push_back(cached_table);
+      arg->inner.push_back(table);
     }
   }
   return FALSE;
 err:
   // it is not marked all tables as outer or several inner or outer tables
-  if (cached_table == err_table)
+  if (table == err_table)
     // self reference (simple case of cyclic reference)
     my_error(ER_INVALID_USE_OF_ORA_JOIN_CYCLE, MYF(0));
   else
-    my_error(ER_INVALID_USE_OF_ORA_JOIN_ONE_TABLE, MYF(0), err_table->alias,
-             cached_table->alias, (with_ora_join()?"OUTER":"INNER"));
+    my_error(ER_INVALID_USE_OF_ORA_JOIN_ONE_TABLE, MYF(0),
+             err_table->alias.str,
+             table->alias.str,
+             (with_ora_join()?"OUTER":"INNER"));
   return TRUE;
 }
 
 
 bool Item_field::ora_join_processor(void *arg)
 {
-  return Item_ident::ora_join_processor_helper((ora_join_processor_param *)arg);
+  DBUG_ASSERT(cached_table);
+  return Item_ident::ora_join_processor_helper((ora_join_processor_param *)arg,
+                                               cached_table);
 }
 
 
 bool Item_direct_view_ref::ora_join_processor(void *arg)
 {
-  return Item_ident::ora_join_processor_helper((ora_join_processor_param *)arg);
+  DBUG_ASSERT(view);
+  return Item_ident::ora_join_processor_helper((ora_join_processor_param *)arg,
+                                               view);
 }
 
 
