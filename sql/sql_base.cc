@@ -8853,7 +8853,7 @@ ora_join_process_expression(THD *thd, Item *cond,
   // collect info about relations and report error if there are some
   struct ora_join_processor_param param;
   param.outer= NULL; param.inner.empty(); param.or_present= FALSE;
-  if (cond->walk(&Item::ora_join_processor, FALSE, (void *)(&param)))
+  if (cond->walk(&Item::ora_join_processor, (void *)(&param), WALK_NO_REF))
     DBUG_RETURN(EXP_ERROR);
 
   /*
@@ -9254,7 +9254,7 @@ bool setup_oracle_join(THD *thd, COND **conds,
           DBUG_RETURN(TRUE);
         if (res != EXP_IGNORED)
         {
-          item->walk(&Item::remove_ora_join_processor, FALSE, NULL);
+          item->walk(&Item::remove_ora_join_processor, 0, 0);
           it.remove(); // will be moved to ON
         }
       }
@@ -9270,7 +9270,7 @@ bool setup_oracle_join(THD *thd, COND **conds,
         DBUG_RETURN(TRUE);
       if (res != EXP_IGNORED)
       {
-        (*conds)->walk(&Item::remove_ora_join_processor, FALSE, NULL);
+        (*conds)->walk(&Item::remove_ora_join_processor, 0, 0);
         *conds= NULL; // will be moved to ON
       }
     }
@@ -9477,7 +9477,7 @@ bool setup_oracle_join(THD *thd, COND **conds,
     }
   }
   if ((*conds)) // remove flags becaouse we converted them
-    (*conds)->walk(&Item::remove_ora_join_processor, FALSE, NULL);
+    (*conds)->walk(&Item::remove_ora_join_processor, 0, 0);
   DBUG_RETURN(FALSE);
 }
 /*

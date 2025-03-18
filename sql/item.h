@@ -864,6 +864,7 @@ static inline item_with_t operator~(const item_with_t a)
 typedef uint8 item_walk_flags;
 const item_walk_flags WALK_SUBQUERY=          1;
 const item_walk_flags WALK_NO_CACHE_PROCESS= (1<<2);
+const item_walk_flags WALK_NO_REF=           (1<<2);
 
 
 class Item :public Value_source,
@@ -6063,6 +6064,8 @@ public:
   bool walk(Item_processor processor, void *arg,
             item_walk_flags flags) override
   {
+    if (flags & WALK_NO_REF)
+      return  (this->*processor)(arg);
     if (ref && *ref)
       return (*ref)->walk(processor, arg, flags) ||
              (this->*processor)(arg); 
@@ -6463,6 +6466,8 @@ public:
   bool walk(Item_processor processor, void *arg,
             item_walk_flags flags) override
   {
+    if (flags & WALK_NO_REF)
+      return (this->*processor)(arg);
     return (*ref)->walk(processor, arg, flags) ||
            (this->*processor)(arg);
   }
@@ -8342,6 +8347,8 @@ public:
   bool walk(Item_processor processor, void *arg,
             item_walk_flags flags) override
   {
+    if (flags & WALK_NO_REF)
+      return (this->*processor)(arg);
     return m_item->walk(processor, arg, flags) ||
       (this->*processor)(arg);
   }
