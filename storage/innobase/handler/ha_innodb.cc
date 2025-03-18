@@ -3729,17 +3729,34 @@ static MYSQL_SYSVAR_SIZE_T(buffer_pool_size_auto_min,
   innodb_buffer_pool_extent_size);
 #endif
 
+/*
+  Max bufferpool size defaults:
+
+  We know Windows and Linux support preallocation
+  of address space without reserving space in
+  pagefile/swap  my_virtual_mem_reserve().
+
+  We did not test if other platforms behave the same.
+*/
+#if defined _WIN32 || defined __linux__
+#  if SIZEOF_SIZE_T < 8
+#    define buffer_pool_size_max_default (1U << 30)
+#    define buffer_pool_size_max_min     (2U << 20)
+#  else
+#    define buffer_pool_size_max_default (16ULL << 40)
+#    define buffer_pool_size_max_min     (8U << 20)
+#  endif
+#else
+#  define buffer_pool_size_max_default 0
+#  define buffer_pool_size_max_min     0
+#endif
+
 static MYSQL_SYSVAR_SIZE_T(buffer_pool_size_max, buf_pool.size_in_bytes_max,
                            PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
                            "Maximum innodb_buffer_pool_size",
                            nullptr, nullptr,
-#if defined _WIN32 || defined __linux__
-# if SIZEOF_SIZE_T < 8
-                           1U << 30, 2U << 20,
-# else
-                           16ULL << 40, 8U << 20,
-# endif
-#endif
+                           buffer_pool_size_max_default,
+                           buffer_pool_size_max_min,
                            size_t(-ssize_t(innodb_buffer_pool_extent_size)),
                            innodb_buffer_pool_extent_size);
 
@@ -3832,8 +3849,7 @@ static int innodb_init_params()
     (buf_pool.blocks_in_bytes(BUF_LRU_MIN_LEN + BUF_LRU_MIN_LEN / 4),
      1U << 20);
   size_t innodb_buffer_pool_size= buf_pool.size_in_bytes_requested;
-#if defined _WIN32 || defined __linux__
-#else
+#if buffer_pool_size_max_default == 0
   if (!buf_pool.size_in_bytes_max)
     buf_pool.size_in_bytes_max= ut_calc_align(innodb_buffer_pool_size,
                                               innodb_buffer_pool_extent_size);
