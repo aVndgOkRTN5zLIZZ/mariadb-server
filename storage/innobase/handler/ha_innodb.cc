@@ -3736,14 +3736,14 @@ static MYSQL_SYSVAR_SIZE_T(buffer_pool_size_max, buf_pool.size_in_bytes_max,
                            nullptr, nullptr,
 #if defined _WIN32 || defined __linux__
 # if SIZEOF_SIZE_T < 8
-#  ifdef __SANITIZE_ADDRESS__
+#  if defined __SANITIZE_ADDRESS__ || __has_feature(memory_sanitizer)
                            512U << 20, /* 512MiB works WITH_ASAN */
 #  else
                            1U << 30, /* 1GiB to play it safe */
 #  endif
                            2U << 20,
 # else
-#  ifdef __SANITIZE_ADDRESS__
+#  if defined __SANITIZE_ADDRESS__ || __has_feature(memory_sanitizer)
                            1U << 30, /* 1GiB works WITH_ASAN */
 #  else
                            64ULL << 40, /* 64TiB ought to be enough */
